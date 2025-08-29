@@ -1,8 +1,3 @@
-## 🚀 Attention
-
-The code for the analytics layer would follow the structure of the AnalyticsScript - Running daily and iterating over the values.
-I have provided the CSV file (csv_final) of a client for you to check the final result.
-Thank you.
 
 ## 🚀 RP Case – Data Pipeline (Airflow + Spark + Delta Lake + S3)
 
