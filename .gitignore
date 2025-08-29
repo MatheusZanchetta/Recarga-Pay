@@ -1,0 +1,55 @@
+# 🛑 Arquivos sensíveis
+.env
+
+# 📂 Logs e arquivos temporários
+logs/
+*.log
+*.out
+*.err
+.ideia
+
+# 🔥 Airflow específico
+airflow.db
+airflow.cfg
+unittests.cfg
+__pycache__/
+*.pyc
+
+# 🐍 Python virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# ⚙️ Arquivos de sistema e IDEs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ☁️ Terraform
+Infra/terraform/.terraform/
+Infra/terraform/.terraform.lock.hcl
+Infra/terraform/terraform.tfstate
+Infra/terraform/terraform.tfstate.backup
+
+# ⚡️ Arquivos grandes (compilados ou baixados)
+*.jar
+*.exe
+*.zip
+*.tar.gz
+*.whl
+
+# 🐳 Docker
+**/__pycache__/
+docker-compose.override.yml
+
+# 🧪 Arquivos de testes
+.coverage
+.tox/
+.nox/
+.pytest_cache/
+.cache/
+
+# ❌ Outras ferramentas
+.mypy_cache/
