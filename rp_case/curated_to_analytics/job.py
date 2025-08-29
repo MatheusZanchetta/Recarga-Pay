@@ -162,6 +162,6 @@ def analytics_job(execution_date: str):
             .save(ANALYTICS_PATH)
         )
         logger.info(f"Analytics Delta criado em {ANALYTICS_PATH}.")
-
+    df_result.show()
     spark.stop()
     logger.info(f"Job analytics finalizado com sucesso para {proc_date_str}.")

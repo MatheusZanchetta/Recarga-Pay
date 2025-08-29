@@ -24,7 +24,7 @@ def raw_to_curated_job(execution_date=None):
     date_str_bucket = prev_date_obj.strftime("%Y-%m-%d")
 
     # Buckets raiz
-    raw_bucket_tx = "s3a://mzan-raw-rp-case/"
+    raw_bucket_tx = "s3a://mzan-raw-rp-case/transactions/"
     raw_bucket_cdi = f"s3a://mzan-raw-rp-case/cdi/data={date_str_bucket}/data.json"
     curated_bucket_tx = "s3a://mzan-curated-rp-case/transactions_delta/"
     curated_bucket_cdi = "s3a://mzan-curated-rp-case/cdi_delta/"
