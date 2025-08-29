@@ -1,0 +1,172 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType
+import pyspark
+conf = pyspark.SparkConf().set('spark.driver.host','127.0.0.1')\
+                        .set("spark.driver.memory", "10g")
+sc = pyspark.SparkContext(master='local', appName='myAppName',conf=conf)
+spark = SparkSession.builder.master("local[*]") \
+                    .appName('myAppName') \
+                    .getOrCreate()
+
+df = spark.read.parquet('parquet/')
+df.createOrReplaceTempView('tabela')
+
+from datetime import datetime
+import requests
+from pyspark.sql.types import StructType, StructField, DateType, DoubleType
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+from pyspark.sql.functions import to_date, col
+
+def fetch_data_from_api(start_date, end_date):
+    """
+    Função para consumir a API e retornar os dados como um JSON.
+    """
+    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial={start_date}&dataFinal={end_date}"
+    response = requests.get(url)
+    
+    # Se o request for bem-sucedido, retornar os dados
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"Erro ao acessar a API: {response.status_code}, {response.text}")
+
+def convert_to_pyspark_df(data):
+    """
+    Converte os dados obtidos da API para um DataFrame PySpark.
+    """
+    # Inicializar SparkSession
+    spark = SparkSession.builder \
+        .appName("API BC PySpark") \
+        .getOrCreate()
+
+    # Definir o schema para o DataFrame
+    schema = StructType([
+        StructField("data", StringType(), True),
+        StructField("valor", DoubleType(), True),
+    ])
+
+    # Criar o DataFrame PySpark
+    df = spark.createDataFrame(data, schema=schema)
+    return df
+
+
+data = fetch_data_from_api("30/04/2024", "07/10/2024")
+
+# Converte os dados ao formato necessário para criar o DataFrame
+processed_data = [{"data": item["data"], "valor": float(item["valor"])} for item in data]
+
+# Criar o DataFrame PySpark
+df_cdi = convert_to_pyspark_df(processed_data)
+df_cdi = df_cdi.withColumn("data", to_date(col("data"), "dd/MM/yyyy"))
+df_cdi.createOrReplaceTempView('tabela_cdi')
+df_cdi.show()
+
+
+df_query = spark.sql(
+    '''
+        select user_id
+            ,account_id
+            ,event_date
+            ,coalesce(lag(saldo_dia) over (partition by user_id,account_id order by event_date), 0.0) as saldo_dia_anterior
+            ,saldo_dia as movimentacao_dia
+            ,lag(event_time) over (partition by user_id,account_id order by event_date) as horario_saldo_elegivel
+            ,event_time
+        from(
+                select user_id
+                    ,account_id
+                    ,date_trunc('day',event_time) as event_date
+                    ,sum(amount) as saldo_dia
+                    ,max(event_time) as event_time
+                from tabela
+                where account_id = '0386e6ab-62e2-558a-96e9-7ae11605bb66'
+                group by 1,2,3
+                order by 3
+        )t1
+
+    
+'''
+)#.show(100,truncate= False)
+
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+from datetime import datetime, timedelta
+
+
+# Definir a janela inicial de cálculo
+window_spec = Window.partitionBy("user_id", "account_id").orderBy("event_date")
+
+# Ordens de cálculo baseadas na Data
+start_date = "2024-04-30"
+end_date = "2024-05-25"
+
+# Filtrar o DataFrame para incluir apenas os valores a partir de `start_date`
+df_query = df_query.filter(F.col("event_date") >= start_date)
+
+# Realizar o Join com a tabela `df_cdi` para associar a taxa CDI diária
+df_join = df_query.join(
+    df_cdi.withColumnRenamed("data", "cdi_date"),
+    df_query["event_date"] == F.col("cdi_date"),
+    "left"
+).drop("cdi_date").withColumnRenamed("valor", "valor_cdi").fillna({"valor_cdi": 0.0})
+
+# Lista para armazenar os resultados processados dia a dia
+result_list = []
+
+# Inicializar o saldo acumulado no DataFrame com 0.0
+df_join = df_join.withColumn("saldo_dia_anterior_corrigido", F.lit(0.0))
+
+# Converter as datas de início e fim em objetos datetime para iterar sobre os dias
+current_date = datetime.strptime(start_date, "%Y-%m-%d")
+end_date = datetime.strptime(end_date, "%Y-%m-%d")
+
+# Loop pelos dias cronológicos
+while current_date <= end_date:
+    current_date_str = current_date.strftime("%Y-%m-%d")
+    
+    # Filtrar apenas os registros do dia atual
+    df_dia_atual = df_join.filter(F.to_date("event_date") == F.lit(current_date_str))
+    
+    # Calcular o CDI (se elegível) e Total para o dia atual
+    df_dia_processed = df_dia_atual.withColumn(
+        "cdi_diario",
+        F.when(
+            (F.col("saldo_dia_anterior_corrigido") > 100) &  # Saldo corrigido maior que 100
+            (F.col("horario_saldo_elegivel").isNotNull()) &  # Valida se horario_saldo_elegivel não é nulo
+            ((F.unix_timestamp(F.col("event_time")) - F.unix_timestamp(F.col("horario_saldo_elegivel"))) / 3600 > 24),  # Diferença de tempo é maior que 24 horas
+            (F.col("valor_cdi") / 100) * F.col("saldo_dia_anterior_corrigido")  # Calcula o CDI
+        ).otherwise(0.0)  # Caso contrário, CDI é zero
+    ).withColumn(
+        "total",
+        F.col("saldo_dia_anterior_corrigido") + F.col("movimentacao_dia") + F.col("cdi_diario")  # Calcula o total diário
+    )
+
+    # Armazenar o resultado do dia atual na lista de resultados
+    result_list.append(df_dia_processed)
+
+    # Capturar o total acumulado do dia atual para usar no próximo dia
+    ultimo_total = df_dia_processed.select(F.col("total")).collect()[0][0]
+
+    # Atualizar o saldo acumulado corrigido no DataFrame para o próximo dia
+    df_join = df_join.withColumn(
+        "saldo_dia_anterior_corrigido",
+        F.when(
+            F.to_date("event_date") > F.lit(current_date_str),  
+            F.lit(ultimo_total)  
+        ).otherwise(F.col("saldo_dia_anterior_corrigido"))  
+    )
+
+    # Avançar para o próximo dia
+    current_date += timedelta(days=1)
+
+# Combinar os resultados processados em um único DataFrame
+df_resultado = result_list[0]
+for df_dia in result_list[1:]:
+    df_resultado = df_resultado.union(df_dia)
+
+# Exibir os resultados finais corrigidos
+df_resultado.select(
+    "user_id", "account_id", "event_date", "horario_saldo_elegivel",
+    "saldo_dia_anterior_corrigido", "valor_cdi", "cdi_diario", "movimentacao_dia", "total"
+).orderBy("event_date").show(truncate=False)
