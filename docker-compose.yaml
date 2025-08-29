@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: airflow-init
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    command: bash -c "airflow db migrate && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./rp_case:/opt/airflow/rp_case
+      - ./logs:/opt/airflow/logs
+      - ./docker/requirements.txt:/opt/airflow/requirements.txt
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: airflow-webserver
+    restart: always
+    depends_on:
+      - postgres
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW__LOGGING__REMOTE_LOGGING: ${AIRFLOW__LOGGING__REMOTE_LOGGING}
+      AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: ${AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID}
+      AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: ${AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER}
+      AIRFLOW__LOGGING__REMOTE_LOGGING_BACKEND: ${AIRFLOW__LOGGING__REMOTE_LOGGING_BACKEND}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./rp_case:/opt/airflow/rp_case
+      - ./logs:/opt/airflow/logs
+      - ./docker/requirements.txt:/opt/airflow/requirements.txt
+    command: "airflow webserver"
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: airflow-scheduler
+    restart: always
+    depends_on:
+      - postgres
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      AIRFLOW__LOGGING__REMOTE_LOGGING: ${AIRFLOW__LOGGING__REMOTE_LOGGING}
+      AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: ${AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID}
+      AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: ${AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER}
+      AIRFLOW__LOGGING__REMOTE_LOGGING_BACKEND: ${AIRFLOW__LOGGING__REMOTE_LOGGING_BACKEND}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./rp_case:/opt/airflow/rp_case
+      - ./logs:/opt/airflow/logs
+      - ./docker/requirements.txt:/opt/airflow/requirements.txt
+    command: "airflow scheduler"
+
+volumes:
+  postgres_data:
